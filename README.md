@@ -185,7 +185,7 @@ gateway_ip: "192.168.1.1"      # ← 改成你的路由器 IP
 
 db_path: "./data/lanflow.db"   # 数据库路径，一般不用改
 retention_days: 90             # 数据保留天数
-listen: ":8080"                # Web 界面端口
+listen: ":18973"                # Web 界面端口
 log_level: "info"              # 日志级别
 log_dir: "./logs"              # 日志目录
 ```
@@ -304,7 +304,7 @@ echo "* * * * * root /opt/lanflow/watchdog.sh" | sudo tee /etc/cron.d/lanflow-wa
 
 ### Step 11: 验证
 
-1. 打开浏览器访问 `http://192.168.1.108:8080`（把 IP 换成你的 Lanflow 服务器 IP）
+1. 打开浏览器访问 `http://192.168.1.108:18973`（把 IP 换成你的 Lanflow 服务器 IP）
 2. 你应该能看到 Lanflow 的仪表盘
 3. 在"实时监控"标签页，应该能看到各个设备的流量数据
 4. 在"设备管理"标签页，给每个 IP 起个名字方便识别
@@ -315,7 +315,7 @@ echo "* * * * * root /opt/lanflow/watchdog.sh" | sudo tee /etc/cron.d/lanflow-wa
 
 ## Web Dashboard
 
-访问 `http://<服务器IP>:8080`，包含三个标签页：
+访问 `http://<服务器IP>:18973`，包含三个标签页：
 
 ### 实时监控
 
@@ -434,7 +434,7 @@ sudo systemctl disable lanflow
 
 #### 5. 验证
 
-等各电脑 DHCP 续租后（或手动刷新），检查 `http://新服务器IP:8080` 能否正常显示流量数据。
+等各电脑 DHCP 续租后（或手动刷新），检查 `http://新服务器IP:18973` 能否正常显示流量数据。
 
 ### 完全卸载
 
@@ -499,7 +499,7 @@ db_path: "./data/lanflow.db" # SQLite 数据库路径
 retention_days: 90           # 数据保留天数（超过自动清理）
 
 # Web 服务
-listen: ":8080"              # 监听端口，访问 http://服务器IP:8080
+listen: ":18973"              # 监听端口，访问 http://服务器IP:18973
 
 # 日志
 log_level: "info"            # 日志级别：debug / info / warn / error
@@ -542,13 +542,13 @@ WebSocket /ws/realtime
 
 ```bash
 # 获取实时流量
-curl http://192.168.1.108:8080/api/realtime
+curl http://192.168.1.108:18973/api/realtime
 
 # 查询今天的流量统计
-curl "http://192.168.1.108:8080/api/stats?range=day&date=$(date +%Y-%m-%d)"
+curl "http://192.168.1.108:18973/api/stats?range=day&date=$(date +%Y-%m-%d)"
 
 # 给某个 IP 起名字
-curl -X PUT http://192.168.1.108:8080/api/devices/192.168.1.100 \
+curl -X PUT http://192.168.1.108:18973/api/devices/192.168.1.100 \
   -H "Content-Type: application/json" \
   -d '{"name": "张三-办公机", "note": "301实验室"}'
 ```
@@ -650,7 +650,7 @@ sqlite3 /opt/lanflow/data/lanflow.db \
 
 ### 如何修改 Web 端口？
 
-编辑 `/opt/lanflow/config.yaml`，把 `listen: ":8080"` 改成你想要的端口（如 `:80`），然后 `sudo systemctl restart lanflow`。
+编辑 `/opt/lanflow/config.yaml`，把 `listen: ":18973"` 改成你想要的端口（如 `:80`），然后 `sudo systemctl restart lanflow`。
 
 ### 支持 IPv6 吗？
 

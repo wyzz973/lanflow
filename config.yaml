@@ -6,7 +6,7 @@ gateway_ip: "192.168.1.1"   # Router IP
 db_path: "./data/lanflow.db"
 retention_days: 90
 
-listen: ":8080"
+listen: ":18973"
 
 log_level: "info"
 log_dir: "./logs"
