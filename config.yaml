@@ -1,0 +1,12 @@
+# lanflow configuration
+interface: "eth0"           # Network interface to capture on
+lan_cidr: "192.168.1.0/24"  # LAN subnet
+gateway_ip: "192.168.1.1"   # Router IP
+
+db_path: "./data/lanflow.db"
+retention_days: 90
+
+listen: ":8080"
+
+log_level: "info"
+log_dir: "./logs"
