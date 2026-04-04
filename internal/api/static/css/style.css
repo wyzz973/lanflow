@@ -136,6 +136,56 @@ main { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
     font-size: 14px;
 }
 
+.btn {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.btn:hover { background: #1557b0; }
+
+.btn-sm {
+    padding: 5px 12px;
+    font-size: 13px;
+}
+
+.btn-outline {
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #1a73e8;
+}
+
+.btn-outline:hover { background: #e8f0fe; }
+
+.discovered-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.discovered-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #e8f0fe;
+    border: 1px solid #c2d7f7;
+    border-radius: 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.discovered-item:hover { background: #d0e1fa; }
+
+.discovered-item.named { background: #e6f4ea; border-color: #a8dab5; }
+
 @media (max-width: 768px) {
     header, main { padding: 16px; }
     nav { padding: 0 16px; }
