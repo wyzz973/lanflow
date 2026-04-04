@@ -29,26 +29,59 @@ type realtimeEntry struct {
 }
 
 func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
-	snapshot := s.agg.Snapshot()
-	deviceMap, _ := s.db.GetDeviceMap()
+	jsonResponse(w, s.buildRealtimeEntries())
+}
 
-	entries := make([]realtimeEntry, 0, len(snapshot))
-	for ip, c := range snapshot {
-		name := ip
-		if dev, ok := deviceMap[ip]; ok {
-			name = dev.Name
+// buildRealtimeEntries merges today's DB totals with current in-memory snapshot.
+func (s *Server) buildRealtimeEntries() []realtimeEntry {
+	// Get today's start timestamp
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local).Unix()
+
+	// Query today's totals from DB
+	dbTotals, _ := s.db.QueryStatsSummary(todayStart, now.Unix()+60)
+	totals := make(map[string]*realtimeEntry)
+	for _, r := range dbTotals {
+		totals[r.IP] = &realtimeEntry{
+			IP:        r.IP,
+			TxBytes:   r.TxBytes,
+			RxBytes:   r.RxBytes,
+			TxPackets: r.TxPackets,
+			RxPackets: r.RxPackets,
 		}
-		entries = append(entries, realtimeEntry{
-			IP:        ip,
-			Name:      name,
-			TxBytes:   c.TxBytes,
-			RxBytes:   c.RxBytes,
-			TxPackets: c.TxPackets,
-			RxPackets: c.RxPackets,
-		})
 	}
 
-	jsonResponse(w, entries)
+	// Add current in-memory snapshot (not yet flushed to DB)
+	snapshot := s.agg.Snapshot()
+	for ip, c := range snapshot {
+		if e, ok := totals[ip]; ok {
+			e.TxBytes += c.TxBytes
+			e.RxBytes += c.RxBytes
+			e.TxPackets += c.TxPackets
+			e.RxPackets += c.RxPackets
+		} else {
+			totals[ip] = &realtimeEntry{
+				IP:        ip,
+				TxBytes:   c.TxBytes,
+				RxBytes:   c.RxBytes,
+				TxPackets: c.TxPackets,
+				RxPackets: c.RxPackets,
+			}
+		}
+	}
+
+	// Resolve device names
+	deviceMap, _ := s.db.GetDeviceMap()
+	entries := make([]realtimeEntry, 0, len(totals))
+	for _, e := range totals {
+		e.Name = e.IP
+		if dev, ok := deviceMap[e.IP]; ok {
+			e.Name = dev.Name
+		}
+		entries = append(entries, *e)
+	}
+
+	return entries
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

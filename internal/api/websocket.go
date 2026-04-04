@@ -121,24 +121,7 @@ func (c *Client) writePump() {
 }
 
 func (s *Server) BroadcastRealtime() {
-	snapshot := s.agg.Snapshot()
-	deviceMap, _ := s.db.GetDeviceMap()
-
-	entries := make([]realtimeEntry, 0, len(snapshot))
-	for ip, c := range snapshot {
-		name := ip
-		if dev, ok := deviceMap[ip]; ok {
-			name = dev.Name
-		}
-		entries = append(entries, realtimeEntry{
-			IP:        ip,
-			Name:      name,
-			TxBytes:   c.TxBytes,
-			RxBytes:   c.RxBytes,
-			TxPackets: c.TxPackets,
-			RxPackets: c.RxPackets,
-		})
-	}
+	entries := s.buildRealtimeEntries()
 
 	data, err := json.Marshal(map[string]interface{}{"data": entries})
 	if err != nil {
