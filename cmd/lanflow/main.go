@@ -60,7 +60,19 @@ func main() {
 	}
 	defer db.Close()
 
-	agg := aggregator.New(lanNet, cfg.GatewayIP)
+	// Exclude gateway and local IPs from traffic stats
+	excludeIPs := []string{cfg.GatewayIP}
+	if iface, err := net.InterfaceByName(cfg.Interface); err == nil {
+		if addrs, err := iface.Addrs(); err == nil {
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+					excludeIPs = append(excludeIPs, ipnet.IP.String())
+				}
+			}
+		}
+	}
+	log.Info("excluding IPs from stats", "ips", excludeIPs)
+	agg := aggregator.New(lanNet, excludeIPs...)
 
 	cap, err := capture.New(cfg.Interface, agg, log)
 	if err != nil {
