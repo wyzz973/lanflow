@@ -34,12 +34,13 @@ Lanflow 是一个轻量级的局域网流量监控工具。它部署在局域网
 ## Features
 
 - **实时流量监控** — WebSocket 推送，2 秒刷新，展示每个 IP 的瞬时上行/下行速率
-- **历史统计查询** — 支持按天/周/月查看各设备流量，ECharts 图表可视化
+- **域名级流量追踪** — 通过 TLS SNI 提取，精确到每个设备访问了哪些网站，流量各占多少
+- **智能域名识别** — 内置 1426 个服务的 34,000+ 条域名规则（来自 [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)），自动将域名映射为友好名称（如 `bilibili.com` → `B站`）
+- **历史统计查询** — 支持按天/周/月查看各设备流量，ECharts 图表可视化，排名表格
 - **设备命名管理** — 自动发现局域网设备，点击即可给 IP 起别名
 - **数据持久化** — SQLite 存储，默认保留 90 天，支持自定义
-- **自动清理** — 每日自动清理过期数据
-- **优雅关停** — 支持 SIGINT/SIGTERM 信号，关停前自动 flush 未保存数据
-- **Systemd 集成** — 开机自启 + 崩溃自动重启 + OOM 保护
+- **高可用** — 崩溃自动重启、OOM 保护、watchdog 看门狗
+- **NAT 流量校正** — 自动识别并校正服务器自身因 NAT 导致的流量重复计算
 
 ---
 
@@ -318,31 +319,24 @@ echo "* * * * * root /opt/lanflow/watchdog.sh" | sudo tee /etc/cron.d/lanflow-wa
 
 ### 实时监控
 
-实时展示所有设备的流量状态：
-
-| 列 | 说明 |
-|----|------|
-| 设备名称 | 已命名显示名称，未命名显示 IP |
-| IP 地址 | 设备的局域网 IP |
-| 上行/下行速率 | 当前瞬时速率（bytes/s） |
-| 今日上行/下行 | 当天累计流量 |
-| 今日总计 | 上行 + 下行总和 |
-
+- 顶部 3 个统计卡片：在线设备数、总上行、总下行
+- 设备表格：名称、IP、实时速率、今日累计流量
+- **"详情"按钮**：弹出该设备的域名流量明细（访问了哪些网站，各占多少流量）
 - WebSocket 自动推送，每 2 秒刷新
 - 按总流量降序排列
-- 绿色圆点表示连接正常
 
 ### 历史统计
 
 - 选择时间范围（天/周/月）和日期进行查询
 - 柱状图对比各设备流量
-- 点击某设备查看详细的时间趋势折线图
+- **流量排行表格**：前 3 名金银铜高亮
+- 点击某设备展开详细趋势图 + **域名流量明细**
 
 ### 设备管理
 
 - 自动列出所有已发现的 IP，点击即可命名
 - 绿色标签 = 已命名，蓝色标签 = 未命名
-- 给 IP 设置名称和备注，方便识别（如"张三-办公机"）
+- 给 IP 设置名称和备注，方便识别
 
 ---
 
@@ -529,8 +523,10 @@ sudo ./lanflow --config /opt/lanflow/config.yaml --log-level debug
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | GET | `/api/realtime` | 所有 IP 的实时流量快照 |
-| GET | `/api/stats?range=day&date=2026-04-04` | 按天/week/month 查询汇总 |
+| GET | `/api/stats?range=day&date=2026-04-04` | 按天/周/月查询汇总 |
 | GET | `/api/stats/{ip}?range=day&date=2026-04-04` | 单个 IP 的分钟级详细记录 |
+| GET | `/api/domains/{ip}?range=day&date=2026-04-04` | 某个 IP 的域名流量明细 |
+| GET | `/api/domains?range=day&date=2026-04-04` | 所有 IP 的域名流量汇总 |
 | GET | `/api/devices` | 获取设备列表 |
 | PUT | `/api/devices/{ip}` | 设置设备名称，Body: `{"name":"GPU-01","note":"301室"}` |
 
@@ -565,10 +561,12 @@ curl -X PUT http://192.168.1.108:8080/api/devices/192.168.1.100 \
 lanflow/
 ├── cmd/lanflow/main.go          # 程序入口
 ├── internal/
-│   ├── aggregator/              # 流量聚合：内存计数器 + 定时 flush
+│   ├── aggregator/              # 流量聚合：per-IP + per-domain 计数器
 │   ├── api/                     # HTTP 服务：REST + WebSocket + 前端
 │   │   └── static/              # 前端资源（嵌入到二进制中）
-│   ├── capture/                 # libpcap 抓包
+│   ├── capture/                 # libpcap 抓包 + SNI/Host 提取
+│   ├── classifier/              # 域名分类（v2fly 规则，34,000+ 条）
+│   │   └── rules.txt            # 嵌入的域名规则文件
 │   ├── config/                  # YAML 配置加载
 │   ├── logger/                  # 结构化日志
 │   └── storage/                 # SQLite 存储
@@ -576,6 +574,21 @@ lanflow/
 ├── lanflow.service              # systemd 服务文件
 ├── go.mod
 └── go.sum
+```
+
+### 域名规则更新
+
+域名分类规则来自 [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)，编译时嵌入二进制。如需更新：
+
+```bash
+# 拉取最新规则
+cd /tmp/domain-list-community && git pull
+
+# 重新生成 rules.txt
+cd /path/to/lanflow && go run /tmp/gen_rules.go
+
+# 重新编译部署
+go build -o lanflow ./cmd/lanflow/
 ```
 
 ---
@@ -594,7 +607,29 @@ lanflow/
 
 ### 代理/VPN 流量能统计到吗？
 
-能。无论用户是否使用 Clash、V2Ray 等代理，流量都会经过网关，**总流量统计是准确的**。但无法区分哪些是直连流量、哪些是代理流量。
+能。无论用户是否使用 Clash、V2Ray 等代理，流量都会经过网关，**总流量统计是准确的**。但无法区分哪些是直连流量、哪些是代理流量。使用代理时，域名明细只能看到代理服务器的地址，看不到实际访问的网站。
+
+### 域名识别不全？
+
+域名识别依赖 TLS SNI（HTTPS 握手时的明文字段）。以下情况可能识别不到：
+- 使用 ESNI/ECH 加密的网站（目前极少）
+- 非 HTTPS 非 HTTP 的协议（如 SSH、游戏等）
+- 使用代理/VPN 后的实际目标域名
+
+未识别的流量会显示原始域名或 IP 地址。
+
+### 如何清理流量数据重新统计？
+
+```bash
+# 停止服务
+sudo systemctl stop lanflow
+
+# 只清流量数据，保留设备命名
+sqlite3 /opt/lanflow/data/lanflow.db "DELETE FROM traffic_stats; DELETE FROM domain_stats; VACUUM;"
+
+# 重启
+sudo systemctl start lanflow
+```
 
 ### 如何让设备立即切换网关？
 
