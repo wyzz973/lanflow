@@ -14,18 +14,24 @@ import (
 var staticFS embed.FS
 
 type Server struct {
-	db     *storage.DB
-	agg    *aggregator.Aggregator
-	logger *slog.Logger
-	hub    *Hub
+	db         *storage.DB
+	agg        *aggregator.Aggregator
+	logger     *slog.Logger
+	hub        *Hub
+	excludeIPs map[string]bool
 }
 
-func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger) *Server {
+func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, excludeIPs []string) *Server {
+	exclude := make(map[string]bool, len(excludeIPs))
+	for _, ip := range excludeIPs {
+		exclude[ip] = true
+	}
 	s := &Server{
-		db:     db,
-		agg:    agg,
-		logger: logger,
-		hub:    newHub(),
+		db:         db,
+		agg:        agg,
+		logger:     logger,
+		hub:        newHub(),
+		excludeIPs: exclude,
 	}
 	go s.hub.run()
 	return s

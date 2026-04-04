@@ -42,6 +42,9 @@ func (s *Server) buildRealtimeEntries() []realtimeEntry {
 	dbTotals, _ := s.db.QueryStatsSummary(todayStart, now.Unix()+60)
 	totals := make(map[string]*realtimeEntry)
 	for _, r := range dbTotals {
+		if s.excludeIPs[r.IP] {
+			continue
+		}
 		totals[r.IP] = &realtimeEntry{
 			IP:        r.IP,
 			TxBytes:   r.TxBytes,

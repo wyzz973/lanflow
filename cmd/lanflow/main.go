@@ -82,7 +82,7 @@ func main() {
 
 	go cap.Run()
 
-	srv := api.NewServer(db, agg, log)
+	srv := api.NewServer(db, agg, log, excludeIPs)
 
 	go flushLoop(agg, db, log, cfg.RetentionDays)
 	go broadcastLoop(srv)
