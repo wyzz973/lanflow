@@ -1,0 +1,17 @@
+[Unit]
+Description=Lanflow - LAN Traffic Monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/lanflow/lanflow --config /opt/lanflow/config.yaml
+WorkingDirectory=/opt/lanflow
+Restart=always
+RestartSec=5
+User=root
+
+# Ensure IP forwarding is enabled
+ExecStartPre=/sbin/sysctl -w net.ipv4.ip_forward=1
+
+[Install]
+WantedBy=multi-user.target
