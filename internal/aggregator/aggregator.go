@@ -16,15 +16,21 @@ type Counter struct {
 }
 
 type Aggregator struct {
-	mu       sync.Mutex
-	lanNet   *net.IPNet
-	counters map[string]*Counter
+	mu         sync.Mutex
+	lanNet     *net.IPNet
+	excludeIPs map[string]bool
+	counters   map[string]*Counter
 }
 
-func New(lanNet *net.IPNet) *Aggregator {
+func New(lanNet *net.IPNet, excludeIPs ...string) *Aggregator {
+	exclude := make(map[string]bool, len(excludeIPs))
+	for _, ip := range excludeIPs {
+		exclude[ip] = true
+	}
 	return &Aggregator{
-		lanNet:   lanNet,
-		counters: make(map[string]*Counter),
+		lanNet:     lanNet,
+		excludeIPs: exclude,
+		counters:   make(map[string]*Counter),
 	}
 }
 
@@ -46,10 +52,16 @@ func (a *Aggregator) RecordPacket(srcIP, dstIP string, size int) {
 	defer a.mu.Unlock()
 
 	if srcInLAN {
+		if a.excludeIPs[srcIP] {
+			return
+		}
 		c := a.getOrCreate(srcIP)
 		c.TxBytes += int64(size)
 		c.TxPackets++
 	} else {
+		if a.excludeIPs[dstIP] {
+			return
+		}
 		c := a.getOrCreate(dstIP)
 		c.RxBytes += int64(size)
 		c.RxPackets++

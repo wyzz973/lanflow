@@ -78,6 +78,26 @@ func TestFlushAndReset(t *testing.T) {
 	}
 }
 
+func TestExcludeIPs(t *testing.T) {
+	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
+	agg := New(lanNet, "192.168.1.1")
+
+	agg.RecordPacket("192.168.1.1", "8.8.8.8", 1000)
+	agg.RecordPacket("192.168.1.10", "8.8.8.8", 2000)
+	agg.RecordPacket("8.8.8.8", "192.168.1.1", 500)
+
+	snapshot := agg.Snapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("expected 1 IP (gateway excluded), got %d", len(snapshot))
+	}
+	if _, ok := snapshot["192.168.1.1"]; ok {
+		t.Error("gateway IP should be excluded")
+	}
+	if snapshot["192.168.1.10"].TxBytes != 2000 {
+		t.Errorf("TxBytes = %d, want 2000", snapshot["192.168.1.10"].TxBytes)
+	}
+}
+
 func TestMultipleIPs(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)

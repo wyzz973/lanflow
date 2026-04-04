@@ -60,7 +60,7 @@ func main() {
 	}
 	defer db.Close()
 
-	agg := aggregator.New(lanNet)
+	agg := aggregator.New(lanNet, cfg.GatewayIP)
 
 	cap, err := capture.New(cfg.Interface, agg, log)
 	if err != nil {
