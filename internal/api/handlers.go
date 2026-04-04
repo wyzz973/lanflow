@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"lanflow/internal/storage"
@@ -286,6 +288,25 @@ func (s *Server) handleDomainStats(w http.ResponseWriter, r *http.Request) {
 func parseTimeRange(rangeStr, dateStr string) (int64, int64, error) {
 	if rangeStr == "" {
 		rangeStr = "day"
+	}
+
+	// Custom range: expects dateStr as "2006-01-02,2006-01-02" (from,to)
+	if rangeStr == "custom" && dateStr != "" {
+		parts := strings.SplitN(dateStr, ",", 2)
+		if len(parts) != 2 {
+			return 0, 0, fmt.Errorf("custom range requires date=from,to format")
+		}
+		fromTime, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(parts[0]), time.Local)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid from date: %w", err)
+		}
+		toTime, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(parts[1]), time.Local)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid to date: %w", err)
+		}
+		// to date is inclusive, so add one day
+		toTime = toTime.Add(24 * time.Hour)
+		return fromTime.Unix(), toTime.Unix(), nil
 	}
 
 	var base time.Time

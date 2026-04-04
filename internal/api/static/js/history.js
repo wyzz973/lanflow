@@ -11,8 +11,14 @@
                 '<option value="day">按天</option>' +
                 '<option value="week">按周</option>' +
                 '<option value="month">按月</option>' +
+                '<option value="custom">自定义</option>' +
             '</select>' +
-            '<input type="date" id="hist-date" value="' + Utils.todayStr() + '">' +
+            '<span id="date-single"><input type="date" id="hist-date" value="' + Utils.todayStr() + '"></span>' +
+            '<span id="date-custom" style="display:none;">' +
+                '<input type="date" id="hist-from" value="' + Utils.todayStr() + '"> ' +
+                '<span style="color:#6b7280;font-size:14px;">至</span> ' +
+                '<input type="date" id="hist-to" value="' + Utils.todayStr() + '">' +
+            '</span>' +
             '<button class="btn" id="hist-query">' +
                 '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
                 '查询' +
@@ -51,11 +57,27 @@
 
     document.getElementById('hist-query').addEventListener('click', query);
 
-    function query() {
-        var range = document.getElementById('hist-range').value;
-        var date = document.getElementById('hist-date').value;
+    // Toggle date inputs based on range selection
+    document.getElementById('hist-range').addEventListener('change', function() {
+        var isCustom = this.value === 'custom';
+        document.getElementById('date-single').style.display = isCustom ? 'none' : '';
+        document.getElementById('date-custom').style.display = isCustom ? '' : 'none';
+    });
 
-        fetch('/api/stats?range=' + range + '&date=' + date)
+    function getQueryParams() {
+        var range = document.getElementById('hist-range').value;
+        if (range === 'custom') {
+            var from = document.getElementById('hist-from').value;
+            var to = document.getElementById('hist-to').value;
+            return 'range=custom&date=' + from + ',' + to;
+        }
+        return 'range=' + range + '&date=' + document.getElementById('hist-date').value;
+    }
+
+    function query() {
+        var params = getQueryParams();
+
+        fetch('/api/stats?' + params)
             .then(function(r) { return r.json(); })
             .then(function(resp) {
                 lastQueryData = resp.data || [];
@@ -187,18 +209,16 @@
     }
 
     function showDetail(ip, name) {
-        var range = document.getElementById('hist-range').value;
-        var date = document.getElementById('hist-date').value;
+        var params = getQueryParams();
 
-        fetch('/api/stats/' + encodeURIComponent(ip) + '?range=' + range + '&date=' + date)
+        fetch('/api/stats/' + encodeURIComponent(ip) + '?' + params)
             .then(function(r) { return r.json(); })
             .then(function(resp) { renderDetailChart(resp.data || [], name); })
             .catch(function(err) { console.error('query detail:', err); });
     }
 
     function showDomainBreakdown(ip, name) {
-        var range = document.getElementById('hist-range').value;
-        var date = document.getElementById('hist-date').value;
+        var params = getQueryParams();
 
         document.getElementById('hist-domain-card').style.display = 'block';
         document.getElementById('hist-domain-title').textContent = name;
@@ -206,7 +226,7 @@
         var tbody = document.getElementById('hist-domain-body');
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px;">加载中...</td></tr>';
 
-        fetch('/api/domains/' + encodeURIComponent(ip) + '?range=' + range + '&date=' + date)
+        fetch('/api/domains/' + encodeURIComponent(ip) + '?' + params)
             .then(function(r) { return r.json(); })
             .then(function(resp) {
                 var data = resp.data || [];
