@@ -3,14 +3,16 @@ package aggregator
 import (
 	"net"
 	"testing"
+
+	"lanflow/internal/storage"
 )
 
 func TestRecordPacket(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)
 
-	agg.RecordPacket("192.168.1.10", "8.8.8.8", 1500)
-	agg.RecordPacket("8.8.8.8", "192.168.1.10", 3000)
+	agg.RecordPacket("192.168.1.10", "8.8.8.8", 12345, 443, 1500)
+	agg.RecordPacket("8.8.8.8", "192.168.1.10", 443, 12345, 3000)
 
 	snapshot := agg.Snapshot()
 	counter, ok := snapshot["192.168.1.10"]
@@ -35,7 +37,7 @@ func TestRecordPacketIgnoresLANToLAN(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)
 
-	agg.RecordPacket("192.168.1.10", "192.168.1.11", 1000)
+	agg.RecordPacket("192.168.1.10", "192.168.1.11", 12345, 80, 1000)
 
 	snapshot := agg.Snapshot()
 	if len(snapshot) != 0 {
@@ -47,7 +49,7 @@ func TestRecordPacketIgnoresExternalToExternal(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)
 
-	agg.RecordPacket("8.8.8.8", "1.1.1.1", 1000)
+	agg.RecordPacket("8.8.8.8", "1.1.1.1", 443, 12345, 1000)
 
 	snapshot := agg.Snapshot()
 	if len(snapshot) != 0 {
@@ -59,7 +61,7 @@ func TestFlushAndReset(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)
 
-	agg.RecordPacket("192.168.1.10", "8.8.8.8", 1500)
+	agg.RecordPacket("192.168.1.10", "8.8.8.8", 12345, 443, 1500)
 
 	records := agg.FlushAndReset()
 	if len(records) != 1 {
@@ -82,9 +84,9 @@ func TestExcludeIPs(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet, "192.168.1.1")
 
-	agg.RecordPacket("192.168.1.1", "8.8.8.8", 1000)
-	agg.RecordPacket("192.168.1.10", "8.8.8.8", 2000)
-	agg.RecordPacket("8.8.8.8", "192.168.1.1", 500)
+	agg.RecordPacket("192.168.1.1", "8.8.8.8", 12345, 443, 1000)
+	agg.RecordPacket("192.168.1.10", "8.8.8.8", 12345, 443, 2000)
+	agg.RecordPacket("8.8.8.8", "192.168.1.1", 443, 12345, 500)
 
 	snapshot := agg.Snapshot()
 	if len(snapshot) != 1 {
@@ -102,9 +104,9 @@ func TestMultipleIPs(t *testing.T) {
 	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
 	agg := New(lanNet)
 
-	agg.RecordPacket("192.168.1.10", "8.8.8.8", 1000)
-	agg.RecordPacket("192.168.1.11", "8.8.8.8", 2000)
-	agg.RecordPacket("8.8.8.8", "192.168.1.10", 500)
+	agg.RecordPacket("192.168.1.10", "8.8.8.8", 12345, 443, 1000)
+	agg.RecordPacket("192.168.1.11", "8.8.8.8", 12346, 443, 2000)
+	agg.RecordPacket("8.8.8.8", "192.168.1.10", 443, 12345, 500)
 
 	snapshot := agg.Snapshot()
 	if len(snapshot) != 2 {
@@ -118,5 +120,49 @@ func TestMultipleIPs(t *testing.T) {
 	}
 	if snapshot["192.168.1.11"].TxBytes != 2000 {
 		t.Errorf("11 TxBytes = %d, want 2000", snapshot["192.168.1.11"].TxBytes)
+	}
+}
+
+func TestDomainTracking(t *testing.T) {
+	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
+	agg := New(lanNet)
+
+	// Record SNI first
+	agg.RecordSNI("192.168.1.10", "1.2.3.4", 443, "github.com")
+	agg.RecordSNI("192.168.1.10", "5.6.7.8", 443, "bilibili.com")
+
+	// Then record packets for those flows
+	agg.RecordPacket("192.168.1.10", "1.2.3.4", 50000, 443, 1000)
+	agg.RecordPacket("192.168.1.10", "1.2.3.4", 50000, 443, 2000)
+	agg.RecordPacket("1.2.3.4", "192.168.1.10", 443, 50000, 5000) // download from github
+	agg.RecordPacket("192.168.1.10", "5.6.7.8", 50001, 443, 500)
+
+	records := agg.FlushDomains()
+	if len(records) < 2 {
+		t.Fatalf("expected at least 2 domain records, got %d", len(records))
+	}
+
+	domainMap := make(map[string]storage.DomainRecord)
+	for _, r := range records {
+		domainMap[r.Domain] = r
+	}
+
+	gh, ok := domainMap["github.com"]
+	if !ok {
+		t.Fatal("expected github.com in domain records")
+	}
+	if gh.TxBytes != 3000 {
+		t.Errorf("github.com TxBytes = %d, want 3000", gh.TxBytes)
+	}
+	if gh.RxBytes != 5000 {
+		t.Errorf("github.com RxBytes = %d, want 5000", gh.RxBytes)
+	}
+
+	bb, ok := domainMap["bilibili.com"]
+	if !ok {
+		t.Fatal("expected bilibili.com in domain records")
+	}
+	if bb.TxBytes != 500 {
+		t.Errorf("bilibili.com TxBytes = %d, want 500", bb.TxBytes)
 	}
 }

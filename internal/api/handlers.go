@@ -186,6 +186,52 @@ func (s *Server) handleDevicePut(w http.ResponseWriter, r *http.Request, ip stri
 	jsonResponse(w, map[string]string{"status": "ok"})
 }
 
+type domainEntry struct {
+	IP      string `json:"ip"`
+	Name    string `json:"name"`
+	Domain  string `json:"domain"`
+	TxBytes int64  `json:"tx_bytes"`
+	RxBytes int64  `json:"rx_bytes"`
+	Total   int64  `json:"total"`
+}
+
+func (s *Server) handleDomainStats(w http.ResponseWriter, r *http.Request) {
+	ip := r.PathValue("ip")
+	rangeStr := r.URL.Query().Get("range")
+	dateStr := r.URL.Query().Get("date")
+
+	from, to, err := parseTimeRange(rangeStr, dateStr)
+	if err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+
+	results, err := s.db.QueryDomainStats(from, to, ip)
+	if err != nil {
+		jsonError(w, "query failed", 500)
+		return
+	}
+
+	deviceMap, _ := s.db.GetDeviceMap()
+	entries := make([]domainEntry, 0, len(results))
+	for _, r := range results {
+		name := r.IP
+		if dev, ok := deviceMap[r.IP]; ok {
+			name = dev.Name
+		}
+		entries = append(entries, domainEntry{
+			IP:      r.IP,
+			Name:    name,
+			Domain:  r.Domain,
+			TxBytes: r.TxBytes,
+			RxBytes: r.RxBytes,
+			Total:   r.TxBytes + r.RxBytes,
+		})
+	}
+
+	jsonResponse(w, entries)
+}
+
 func parseTimeRange(rangeStr, dateStr string) (int64, int64, error) {
 	if rangeStr == "" {
 		rangeStr = "day"

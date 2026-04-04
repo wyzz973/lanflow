@@ -36,7 +36,7 @@ func TestHandleRealtime(t *testing.T) {
 	srv, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	srv.agg.RecordPacket("192.168.1.10", "8.8.8.8", 1500)
+	srv.agg.RecordPacket("192.168.1.10", "8.8.8.8", 12345, 443, 1500)
 
 	req := httptest.NewRequest("GET", "/api/realtime", nil)
 	w := httptest.NewRecorder()

@@ -115,6 +115,13 @@ func main() {
 		log.Info("final flush completed", "records", len(records))
 	}
 
+	domainRecords := agg.FlushDomains()
+	if len(domainRecords) > 0 {
+		if err := db.InsertDomainStats(domainRecords); err != nil {
+			log.Error("final domain flush failed", "error", err)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	httpServer.Shutdown(ctx)
@@ -144,6 +151,13 @@ func flushLoop(agg *aggregator.Aggregator, db *storage.DB, log *slog.Logger, ret
 				total += r.TxBytes + r.RxBytes
 			}
 			log.Info("flush completed", "ips", len(records), "total_bytes", total)
+
+			domainRecords := agg.FlushDomains()
+			if len(domainRecords) > 0 {
+				if err := db.InsertDomainStats(domainRecords); err != nil {
+					log.Error("flush domain stats failed", "error", err)
+				}
+			}
 
 		case <-cleanupTicker.C:
 			deleted, err := db.Cleanup(retentionDays)

@@ -47,6 +47,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/devices/{ip}", func(w http.ResponseWriter, r *http.Request) {
 		s.handleDevicePut(w, r, r.PathValue("ip"))
 	})
+	mux.HandleFunc("GET /api/domains/{ip}", s.handleDomainStats)
+	mux.HandleFunc("GET /api/domains", s.handleDomainStats)
 	mux.HandleFunc("/ws/realtime", s.handleWebSocket)
 
 	sub, _ := fs.Sub(staticFS, "static")

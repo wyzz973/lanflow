@@ -25,6 +25,14 @@ type Device struct {
 	Note string `json:"note"`
 }
 
+type DomainRecord struct {
+	IP        string `json:"ip"`
+	Domain    string `json:"domain"`
+	Timestamp int64  `json:"timestamp"`
+	TxBytes   int64  `json:"tx_bytes"`
+	RxBytes   int64  `json:"rx_bytes"`
+}
+
 type DB struct {
 	db *sql.DB
 }
@@ -70,6 +78,16 @@ func migrate(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_ip_time ON traffic_stats(ip, timestamp);
 	CREATE INDEX IF NOT EXISTS idx_time ON traffic_stats(timestamp);
+	CREATE TABLE IF NOT EXISTS domain_stats (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		ip         TEXT    NOT NULL,
+		domain     TEXT    NOT NULL,
+		timestamp  INTEGER NOT NULL,
+		tx_bytes   INTEGER NOT NULL,
+		rx_bytes   INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_domain_ip_time ON domain_stats(ip, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_domain_time ON domain_stats(timestamp);
 	`
 	_, err := db.Exec(schema)
 	return err
@@ -179,11 +197,59 @@ func (d *DB) GetDeviceMap() (map[string]Device, error) {
 	return m, nil
 }
 
+func (d *DB) InsertDomainStats(records []DomainRecord) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO domain_stats (ip, domain, timestamp, tx_bytes, rx_bytes) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, r := range records {
+		if _, err := stmt.Exec(r.IP, r.Domain, r.Timestamp, r.TxBytes, r.RxBytes); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (d *DB) QueryDomainStats(from, to int64, ip string) ([]DomainRecord, error) {
+	query := `SELECT ip, domain, 0, SUM(tx_bytes), SUM(rx_bytes) FROM domain_stats WHERE timestamp >= ? AND timestamp <= ?`
+	args := []interface{}{from, to}
+	if ip != "" {
+		query += ` AND ip = ?`
+		args = append(args, ip)
+	}
+	query += ` GROUP BY ip, domain ORDER BY SUM(tx_bytes) + SUM(rx_bytes) DESC`
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []DomainRecord
+	for rows.Next() {
+		var r DomainRecord
+		if err := rows.Scan(&r.IP, &r.Domain, &r.Timestamp, &r.TxBytes, &r.RxBytes); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
 func (d *DB) Cleanup(retentionDays int) (int64, error) {
 	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	result, err := d.db.Exec(`DELETE FROM traffic_stats WHERE timestamp < ?`, cutoff)
 	if err != nil {
 		return 0, err
 	}
+	d.db.Exec(`DELETE FROM domain_stats WHERE timestamp < ?`, cutoff)
 	return result.RowsAffected()
 }
