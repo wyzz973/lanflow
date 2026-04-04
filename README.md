@@ -5,10 +5,10 @@
   </p>
   <p align="center">
     <a href="#features">Features</a> •
-    <a href="#architecture">Architecture</a> •
-    <a href="#quick-start">Quick Start</a> •
-    <a href="#deployment">Deployment</a> •
-    <a href="#configuration">Configuration</a> •
+    <a href="#how-it-works">How it Works</a> •
+    <a href="#step-by-step-deployment">Step-by-Step Deployment</a> •
+    <a href="#web-dashboard">Dashboard</a> •
+    <a href="#maintenance">Maintenance</a> •
     <a href="#api">API</a> •
     <a href="#faq">FAQ</a>
   </p>
@@ -18,7 +18,7 @@
 
 ## What is Lanflow?
 
-Lanflow 是一个轻量级的局域网流量监控工具，部署在局域网内一台 Linux 机器上，通过将该机器设为网关并抓包的方式，**实时统计每个 IP 的上行/下行流量**，并提供 Web 仪表盘进行可视化展示。
+Lanflow 是一个轻量级的局域网流量监控工具。它部署在局域网内**一台 Linux 机器**上，通过将该机器设为网关并抓包的方式，**实时统计每个 IP 的上行/下行流量**，并提供 Web 仪表盘进行可视化展示。
 
 **典型场景：** 实验室/办公室多台电脑共享一个路由器上网，路由器没有 per-IP 流量统计功能，需要知道每个人用了多少流量。
 
@@ -28,194 +28,289 @@ Lanflow 是一个轻量级的局域网流量监控工具，部署在局域网内
 - **单一二进制** — Go 编译，前端资源嵌入，一个文件搞定部署
 - **高性能** — 基于 libpcap 内核级抓包，Go 原生并发，轻松处理百兆网络
 - **低资源** — 运行时内存 < 20MB，SQLite 存储，无外部依赖
+- **高可用** — 崩溃自动重启、OOM 保护、watchdog 看门狗，即使 lanflow 挂了也不影响上网
 - **Web 仪表盘** — 实时监控 + 历史统计 + 设备管理，开箱即用
 
 ## Features
 
 - **实时流量监控** — WebSocket 推送，2 秒刷新，展示每个 IP 的瞬时上行/下行速率
 - **历史统计查询** — 支持按天/周/月查看各设备流量，ECharts 图表可视化
-- **设备命名管理** — 给 IP 起别名（如"张三-办公机"），方便识别
+- **设备命名管理** — 自动发现局域网设备，点击即可给 IP 起别名
 - **数据持久化** — SQLite 存储，默认保留 90 天，支持自定义
 - **自动清理** — 每日自动清理过期数据
 - **优雅关停** — 支持 SIGINT/SIGTERM 信号，关停前自动 flush 未保存数据
-- **Systemd 集成** — 提供 service 文件，开机自启 + 崩溃重启
+- **Systemd 集成** — 开机自启 + 崩溃自动重启 + OOM 保护
 
-## Architecture
+---
 
-```
-                          ┌──────────────────┐
-                          │    Router         │
-                          │  192.168.1.1      │
-                          │  (校园网/外网)     │
-                          └────────┬─────────┘
-                                   │
-                          ┌────────▼─────────┐
-                          │  Lanflow Server   │
-                          │  192.168.1.108    │
-                          │  (透明网关)        │
-                          └────────┬─────────┘
-                                   │
-              ┌────────────┬───────┴───────┬────────────┐
-              │            │               │            │
-        ┌─────▼────┐ ┌─────▼────┐  ┌──────▼───┐ ┌──────▼───┐
-        │ PC-01    │ │ PC-02    │  │ GPU-01   │ │ GPU-02   │
-        │ Windows  │ │ Windows  │  │ Linux    │ │ Linux    │
-        └──────────┘ └──────────┘  └──────────┘ └──────────┘
-```
+## How it Works
 
-**工作原理：** 将运行 Lanflow 的机器设为局域网默认网关（修改路由器 DHCP 设置），所有外网流量都会经过这台机器。Lanflow 通过 libpcap 抓包，解析 IP 层，按源/目的 IP 统计上行和下行字节数。
+### 原理简述
 
-### 内部模块
+正常情况下，你的网络是这样的：
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                lanflow (单一 Go 二进制)                │
-│                                                       │
-│  ┌─────────┐   ┌────────────┐   ┌──────────────┐    │
-│  │ Capture  │──▶│ Aggregator │──▶│   SQLite     │    │
-│  │ (libpcap)│   │ (内存计数)  │   │  (持久化)    │    │
-│  └─────────┘   └──────┬─────┘   └──────┬───────┘    │
-│                       │                │             │
-│                 ┌─────▼────────────────▼─────────┐   │
-│                 │        HTTP Server             │   │
-│                 │  REST API · WebSocket · 前端    │   │
-│                 └────────────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
+[外网/校园网] ←→ [路由器 192.168.1.1] ←→ [所有电脑]
 ```
 
-| 模块 | 职责 |
+部署 Lanflow 后，变成这样：
+
+```
+[外网/校园网] ←→ [路由器 192.168.1.1] ←→ [Lanflow 服务器] ←→ [所有电脑]
+```
+
+**所有电脑的外网流量都会经过 Lanflow 服务器**，Lanflow 在这台服务器上抓包统计，然后把流量转发给路由器。对用户来说完全透明，感觉不到任何区别。
+
+### 你需要做什么
+
+1. 在一台 **Linux 机器**上安装 Lanflow
+2. 在**路由器**上改一个设置（把网关指向 Lanflow 机器）
+3. 打开浏览器看流量统计
+
+其他所有电脑（Windows/Mac/Linux）**不需要做任何事情**。
+
+### 对你的网络有什么影响？
+
+| 问题 | 答案 |
 |------|------|
-| **Capture** | libpcap 混杂模式抓包，BPF 过滤 IP 包，解析 IPv4 层 |
-| **Aggregator** | 内存中维护 per-IP 计数器，每 60 秒 flush 到数据库 |
-| **Storage** | SQLite WAL 模式，分钟粒度存储，定期清理过期数据 |
-| **API Server** | REST API + WebSocket 实时推送 + 嵌入式前端 |
+| 会变慢吗？ | 几乎不会。Lanflow 只是抓包统计，不修改数据包，转发由 Linux 内核完成，性能损耗极低 |
+| Lanflow 挂了会断网吗？ | **不会。** IP 转发是 Linux 内核功能，即使 Lanflow 进程崩溃，网络转发照常工作。你只是暂时看不到统计数据 |
+| 服务器关机了会断网吗？ | **会。** 因为所有流量都经过这台服务器，服务器关机 = 网关消失 = 断网。解决方法见 [紧急恢复](#emergency-recovery) |
 
-## Quick Start
+---
+
+## Step-by-Step Deployment
+
+> 下面以 Ubuntu 为例，一步步教你部署。**整个过程大约 10 分钟。**
 
 ### 前提条件
 
-- Linux 服务器（Ubuntu 18.04+，CentOS 7+ 等）
-- 已安装 `libpcap-dev`（Ubuntu）或 `libpcap-devel`（CentOS）
-- Go 1.21+（仅编译时需要）
-- root 权限（抓包需要）
+- 一台 **Linux 服务器**（Ubuntu 18.04+/CentOS 7+/Debian 10+），需要一直开机
+- 这台服务器和其他电脑在**同一个局域网**（连同一个路由器）
+- 你有这台服务器的 **root 权限**（或 sudo 权限）
+- 你能登录路由器管理界面
 
-### 编译
+### Step 1: 查看你的网络信息
+
+SSH 登录你的 Linux 服务器，运行以下命令：
 
 ```bash
-# 克隆仓库
-git clone https://github.com/yourname/lanflow.git
+# 查看网卡名称和 IP
+ip addr show
+```
+
+你会看到类似这样的输出：
+
+```
+2: enp132s0: <BROADCAST,MULTICAST,UP,LOWER_UP>
+    inet 192.168.1.108/24 brd 192.168.1.255 scope global enp132s0
+```
+
+记下以下信息（后面要用）：
+
+| 信息 | 示例值 | 你的值 |
+|------|--------|--------|
+| 网卡名称 | `enp132s0` | ________ |
+| 服务器 IP | `192.168.1.108` | ________ |
+| 局域网网段 | `192.168.1.0/24` | ________ |
+| 路由器 IP | `192.168.1.1` | ________ |
+
+> **提示：** 路由器 IP 通常是 `192.168.1.1` 或 `192.168.0.1`，可以用 `ip route | grep default` 查看。
+
+### Step 2: 安装依赖
+
+```bash
+# Ubuntu / Debian
+sudo apt update
+sudo apt install -y git libpcap-dev iptables-persistent
+
+# CentOS / RHEL
+sudo yum install -y git libpcap-devel iptables-services
+```
+
+### Step 3: 安装 Go（如果还没装）
+
+```bash
+# 下载 Go（中国用户可以用镜像加速）
+wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+# 或者用镜像：wget https://golang.google.cn/dl/go1.24.2.linux-amd64.tar.gz
+
+# 解压安装
+sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
+
+# 添加到 PATH（写入 .bashrc 保证重启后仍然有效）
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+
+# 验证
+go version
+# 应该输出：go version go1.24.2 linux/amd64
+```
+
+### Step 4: 下载并编译 Lanflow
+
+```bash
+# 克隆代码
+git clone https://github.com/wyzz973/lanflow.git
 cd lanflow
 
-# 编译（生成单一二进制文件，前端已嵌入）
+# 设置 Go 代理（中国用户加速下载依赖）
+export GOPROXY=https://goproxy.cn,direct
+
+# 编译
 go build -o lanflow ./cmd/lanflow/
 
-# 运行测试
+# 验证编译成功
+ls -lh lanflow
+# 应该看到一个约 17MB 的文件
+
+# 运行测试（可选，确认一切正常）
 go test ./... -v
 ```
 
-### 快速运行
+### Step 5: 配置 Lanflow
 
 ```bash
-# 1. 修改配置文件
-cp config.yaml config.yaml.bak
-vim config.yaml   # 修改 interface、lan_cidr、gateway_ip
-
-# 2. 开启 IP 转发
-sudo sysctl -w net.ipv4.ip_forward=1
-
-# 3. 设置 NAT 转发（将 eth0 替换为你的外网网卡）
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-
-# 4. 启动
-sudo ./lanflow --config config.yaml
-
-# 5. 打开浏览器访问
-# http://<服务器IP>:8080
+# 编辑配置文件，把网卡名和 IP 改成你自己的
+vim config.yaml
 ```
 
-## Deployment
-
-### 推荐：Systemd 部署
-
-```bash
-# 1. 复制文件到部署目录
-sudo mkdir -p /opt/lanflow
-sudo cp lanflow config.yaml /opt/lanflow/
-sudo mkdir -p /opt/lanflow/{data,logs}
-
-# 2. 修改配置
-sudo vim /opt/lanflow/config.yaml
-
-# 3. 安装 systemd service
-sudo cp lanflow.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable lanflow   # 开机自启
-sudo systemctl start lanflow    # 启动
-
-# 4. 查看状态
-sudo systemctl status lanflow
-sudo journalctl -u lanflow -f   # 查看日志
-```
-
-### 路由器配置
-
-在路由器管理界面（通常是 `192.168.1.1`）的 **DHCP 服务器** 设置中：
-
-| 项目 | 修改前 | 修改后 |
-|------|--------|--------|
-| 网关 | `0.0.0.0`（或路由器 IP） | Lanflow 服务器的 IP（如 `192.168.1.108`） |
-
-保存后，局域网设备在 DHCP 续租时会自动切换网关。若想立即生效，可在各设备上断开重连网络。
-
-> **回退方案：** 如需停止监控，将路由器 DHCP 网关改回 `0.0.0.0` 或路由器 IP 即可。
-
-### 网络拓扑要求
-
-```
-[外网] ←→ [路由器] ←→ [Lanflow 服务器] ←→ [局域网设备]
-                          ↑
-                    所有外网流量经过这里
-```
-
-Lanflow 服务器需要：
-- 有固定 IP（建议在路由器中绑定 MAC-IP）
-- 与路由器在同一子网
-- 已开启 IP 转发（`net.ipv4.ip_forward=1`）
-
-## Configuration
-
-`config.yaml` 配置说明：
+需要修改的内容（把示例值改成你在 Step 1 记下的值）：
 
 ```yaml
-# 网络配置（必填）
-interface: "eth0"            # 抓包网卡名称，用 `ip addr` 查看
-lan_cidr: "192.168.1.0/24"   # 局域网网段
-gateway_ip: "192.168.1.1"    # 路由器 IP
+interface: "enp132s0"          # ← 改成你的网卡名称
+lan_cidr: "192.168.1.0/24"     # ← 改成你的局域网网段
+gateway_ip: "192.168.1.1"      # ← 改成你的路由器 IP
 
-# 存储配置
-db_path: "./data/lanflow.db" # SQLite 数据库路径
-retention_days: 90           # 数据保留天数
-
-# Web 服务
-listen: ":8080"              # 监听地址和端口
-
-# 日志
-log_level: "info"            # 日志级别：debug / info / warn / error
-log_dir: "./logs"            # 日志文件目录
+db_path: "./data/lanflow.db"   # 数据库路径，一般不用改
+retention_days: 90             # 数据保留天数
+listen: ":8080"                # Web 界面端口
+log_level: "info"              # 日志级别
+log_dir: "./logs"              # 日志目录
 ```
 
-也可通过命令行参数覆盖：
+### Step 6: 部署为系统服务
 
 ```bash
-sudo ./lanflow --config /path/to/config.yaml --log-level debug
+# 创建部署目录
+sudo mkdir -p /opt/lanflow/{data,logs}
+
+# 复制文件
+sudo cp lanflow config.yaml /opt/lanflow/
+
+# 安装 systemd 服务
+sudo cp lanflow.service /etc/systemd/system/
+
+# 设置开机自启 + 启动服务
+sudo systemctl daemon-reload
+sudo systemctl enable lanflow
+sudo systemctl start lanflow
+
+# 检查是否启动成功
+sudo systemctl status lanflow
 ```
 
-### 如何查看网卡名称
+你应该看到 `Active: active (running)`，表示服务已经在运行了。
+
+### Step 7: 设置网络转发
 
 ```bash
-ip addr show
-# 找到有局域网 IP 的网卡，如 eth0、enp0s3、ens33 等
+# 开启 IP 转发（让这台机器可以转发其他电脑的流量）
+echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-lanflow.conf
+sudo sysctl -p /etc/sysctl.d/99-lanflow.conf
+
+# 设置 NAT 转发规则（把 enp132s0 换成你的网卡名）
+sudo iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -o enp132s0 -j MASQUERADE
+
+# 持久化 iptables 规则（重启后仍然有效）
+sudo netfilter-persistent save
 ```
+
+### Step 8: 安装 Watchdog（看门狗）
+
+Watchdog 每分钟检查一次，确保 IP 转发、iptables 规则、lanflow 服务都正常运行。如果有异常会自动修复。
+
+创建文件 `/opt/lanflow/watchdog.sh`：
+
+```bash
+sudo tee /opt/lanflow/watchdog.sh << 'EOF'
+#!/bin/bash
+LOG="/opt/lanflow/logs/watchdog.log"
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+# 确保 IP 转发开启
+if [ "$(cat /proc/sys/net/ipv4/ip_forward)" != "1" ]; then
+    echo "$TIMESTAMP [WARN] ip_forward was off, re-enabling" >> "$LOG"
+    sysctl -w net.ipv4.ip_forward=1 > /dev/null
+fi
+
+# 确保 NAT 规则存在（把网段和网卡名换成你自己的）
+if ! iptables -t nat -C POSTROUTING -s 192.168.1.0/24 -o enp132s0 -j MASQUERADE 2>/dev/null; then
+    echo "$TIMESTAMP [WARN] MASQUERADE rule missing, re-adding" >> "$LOG"
+    iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -o enp132s0 -j MASQUERADE
+fi
+
+# 确保 lanflow 服务在运行
+if ! systemctl is-active --quiet lanflow; then
+    echo "$TIMESTAMP [ERROR] lanflow is down, restarting" >> "$LOG"
+    systemctl restart lanflow
+fi
+
+# 检查能否连通路由器
+if ! ping -c 1 -W 2 192.168.1.1 > /dev/null 2>&1; then
+    echo "$TIMESTAMP [ERROR] cannot reach router 192.168.1.1" >> "$LOG"
+fi
+EOF
+
+# 设置可执行权限
+sudo chmod +x /opt/lanflow/watchdog.sh
+
+# 添加到 cron，每分钟执行一次
+echo "* * * * * root /opt/lanflow/watchdog.sh" | sudo tee /etc/cron.d/lanflow-watchdog
+```
+
+### Step 9: 修改路由器设置
+
+**这是最关键的一步。** 修改后，所有电脑的外网流量就会经过你的 Lanflow 服务器。
+
+1. 打开浏览器，访问路由器管理界面（通常是 `http://192.168.1.1`）
+2. 找到 **DHCP 服务器** 设置（一般在"路由设置"或"LAN 设置"里）
+3. 把 **网关** 从 `0.0.0.0`（或空）改成 **Lanflow 服务器的 IP**（如 `192.168.1.108`）
+4. 点 **保存**
+
+```
+修改前：网关 = 0.0.0.0（或 192.168.1.1）
+修改后：网关 = 192.168.1.108  ← 你的 Lanflow 服务器 IP
+```
+
+> **DNS 设置不用改**，保持原样即可。
+
+### Step 10: 让其他电脑生效
+
+修改路由器后，其他电脑需要重新获取 IP 才能生效。有两种方式：
+
+**方式一：等待自动生效（推荐）**
+
+路由器 DHCP 租期到了会自动更新，一般 2 小时内全部生效。
+
+**方式二：手动立即生效**
+
+| 操作系统 | 命令 |
+|---------|------|
+| **Windows** | 打开 CMD，运行 `ipconfig /release && ipconfig /renew` |
+| **Linux** | 运行 `sudo dhclient -r && sudo dhclient` 或者 `sudo nmcli connection down "有线连接" && sudo nmcli connection up "有线连接"` |
+| **macOS** | 系统设置 → 网络 → 点击已连接的网络 → 关闭再打开 |
+
+### Step 11: 验证
+
+1. 打开浏览器访问 `http://192.168.1.108:8080`（把 IP 换成你的 Lanflow 服务器 IP）
+2. 你应该能看到 Lanflow 的仪表盘
+3. 在"实时监控"标签页，应该能看到各个设备的流量数据
+4. 在"设备管理"标签页，给每个 IP 起个名字方便识别
+
+**恭喜！部署完成！** 🎉
+
+---
 
 ## Web Dashboard
 
@@ -235,7 +330,7 @@ ip addr show
 
 - WebSocket 自动推送，每 2 秒刷新
 - 按总流量降序排列
-- 绿色圆点表示 WebSocket 连接正常
+- 绿色圆点表示连接正常
 
 ### 历史统计
 
@@ -245,8 +340,185 @@ ip addr show
 
 ### 设备管理
 
-- 给 IP 地址设置名称和备注
-- 方便识别哪台机器是谁的
+- 自动列出所有已发现的 IP，点击即可命名
+- 绿色标签 = 已命名，蓝色标签 = 未命名
+- 给 IP 设置名称和备注，方便识别（如"张三-办公机"）
+
+---
+
+## Maintenance
+
+### 日常运维
+
+```bash
+# 查看服务状态
+sudo systemctl status lanflow
+
+# 查看实时日志
+sudo journalctl -u lanflow -f
+
+# 查看 watchdog 日志
+tail -f /opt/lanflow/logs/watchdog.log
+
+# 手动重启服务（不影响网络转发）
+sudo systemctl restart lanflow
+```
+
+### 更新 Lanflow
+
+```bash
+# 1. 在编译机器上拉取新代码并编译
+cd lanflow
+git pull
+go build -o lanflow ./cmd/lanflow/
+
+# 2. 传到服务器
+scp lanflow user@192.168.1.108:/home/user/
+
+# 3. 在服务器上替换（需要先停再换）
+sudo systemctl stop lanflow
+sudo cp /home/user/lanflow /opt/lanflow/lanflow
+sudo systemctl start lanflow
+```
+
+### <a id="emergency-recovery"></a>紧急恢复（服务器宕机导致全部断网）
+
+如果 Lanflow 服务器突然宕机（断电、硬件故障等），所有电脑会断网。按以下步骤恢复：
+
+**方法一：重启服务器（推荐）**
+
+重新开机即可，lanflow 会自动启动，网络自动恢复。
+
+**方法二：临时绕过 Lanflow（服务器无法启动时）**
+
+1. 打开路由器管理界面 `http://192.168.1.1`（用手机连路由器 WiFi 访问）
+2. 进入 DHCP 服务器设置
+3. 把**网关**从 Lanflow 服务器 IP 改回 `0.0.0.0`
+4. 保存
+5. 各电脑重新连接网络（或等 DHCP 续租）
+
+> 改回后所有电脑直接通过路由器上网，不再经过 Lanflow，流量不再被监控。等服务器修好后再改回来。
+
+### 迁移到新机器
+
+如果要把 Lanflow 从旧服务器迁移到新服务器：
+
+#### 1. 在新服务器上安装
+
+按照 [Step-by-Step Deployment](#step-by-step-deployment) 的 Step 1 ~ Step 8 在新服务器上完成安装。
+
+**注意修改配置文件中的网卡名称**（新服务器的网卡名可能不同）。
+
+#### 2. 迁移历史数据（可选）
+
+如果你想保留历史流量数据：
+
+```bash
+# 在旧服务器上
+sudo systemctl stop lanflow
+scp /opt/lanflow/data/lanflow.db user@新服务器IP:/tmp/
+
+# 在新服务器上
+sudo systemctl stop lanflow
+sudo cp /tmp/lanflow.db /opt/lanflow/data/lanflow.db
+sudo systemctl start lanflow
+```
+
+#### 3. 切换路由器网关
+
+1. 打开路由器管理界面
+2. 把 DHCP 网关从旧服务器 IP 改成**新服务器 IP**
+3. 保存
+
+#### 4. 关闭旧服务器的 lanflow
+
+```bash
+# 在旧服务器上
+sudo systemctl stop lanflow
+sudo systemctl disable lanflow
+```
+
+#### 5. 验证
+
+等各电脑 DHCP 续租后（或手动刷新），检查 `http://新服务器IP:8080` 能否正常显示流量数据。
+
+### 完全卸载
+
+如果不想再用 Lanflow 了：
+
+```bash
+# 1. 先改回路由器网关！（否则断网）
+#    路由器 DHCP 网关改回 0.0.0.0
+
+# 2. 停止并删除服务
+sudo systemctl stop lanflow
+sudo systemctl disable lanflow
+sudo rm /etc/systemd/system/lanflow.service
+sudo systemctl daemon-reload
+
+# 3. 删除 watchdog
+sudo rm /etc/cron.d/lanflow-watchdog
+
+# 4. 删除 iptables 规则
+sudo iptables -t nat -D POSTROUTING -s 192.168.1.0/24 -o enp132s0 -j MASQUERADE
+sudo netfilter-persistent save
+
+# 5. 关闭 IP 转发（如果不需要的话）
+sudo rm /etc/sysctl.d/99-lanflow.conf
+sudo sysctl -p
+
+# 6. 删除文件
+sudo rm -rf /opt/lanflow
+```
+
+---
+
+## High Availability
+
+Lanflow 提供了多层高可用保障：
+
+| 保障层级 | 措施 | 说明 |
+|---------|------|------|
+| **进程级** | systemd `Restart=always` | lanflow 崩溃后 3 秒内自动重启 |
+| **进程级** | `OOMScoreAdjust=-900` | 内存不足时，内核优先杀其他进程，保住网关 |
+| **网络级** | IP 转发独立于 lanflow | 即使 lanflow 挂了，Linux 内核继续转发流量，**不会断网** |
+| **网络级** | iptables 持久化 | 重启后 NAT 规则自动恢复 |
+| **系统级** | sysctl 持久化 | 重启后 IP 转发自动开启 |
+| **监控级** | watchdog 脚本 | 每分钟检查：IP 转发、iptables、lanflow 服务，异常自动修复 |
+
+**关键设计：** 网络转发（IP forward + iptables）是内核级功能，和 lanflow 进程完全解耦。lanflow 只负责"看"流量，不负责"转"流量。所以 lanflow 挂了 ≠ 断网。
+
+---
+
+## Configuration
+
+`config.yaml` 配置说明：
+
+```yaml
+# 网络配置（必填）
+interface: "eth0"            # 抓包网卡名称，用 ip addr 查看
+lan_cidr: "192.168.1.0/24"   # 局域网网段
+gateway_ip: "192.168.1.1"    # 路由器 IP
+
+# 存储配置
+db_path: "./data/lanflow.db" # SQLite 数据库路径
+retention_days: 90           # 数据保留天数（超过自动清理）
+
+# Web 服务
+listen: ":8080"              # 监听端口，访问 http://服务器IP:8080
+
+# 日志
+log_level: "info"            # 日志级别：debug / info / warn / error
+log_dir: "./logs"            # 日志文件目录
+```
+
+命令行参数可覆盖配置文件：
+
+```bash
+sudo ./lanflow --config /opt/lanflow/config.yaml --log-level debug
+```
+
+---
 
 ## API
 
@@ -254,50 +526,13 @@ ip addr show
 
 ### REST API
 
-#### 获取实时流量
-
-```
-GET /api/realtime
-```
-
-```json
-{
-  "data": [
-    {
-      "ip": "192.168.1.10",
-      "name": "GPU-01",
-      "tx_bytes": 15234,
-      "rx_bytes": 892341,
-      "tx_packets": 120,
-      "rx_packets": 650
-    }
-  ]
-}
-```
-
-#### 查询统计数据
-
-```
-GET /api/stats?range=day&date=2026-04-04
-GET /api/stats?range=week&date=2026-04-04
-GET /api/stats?range=month&date=2026-04-04
-```
-
-#### 查询单个 IP 详细记录
-
-```
-GET /api/stats/{ip}?range=day&date=2026-04-04
-```
-
-返回该 IP 在指定时间范围内每分钟的流量记录。
-
-#### 设备管理
-
-```
-GET /api/devices                    # 获取设备列表
-PUT /api/devices/{ip}               # 设置设备名称
-    Body: {"name": "GPU-01", "note": "lab room 301"}
-```
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/realtime` | 所有 IP 的实时流量快照 |
+| GET | `/api/stats?range=day&date=2026-04-04` | 按天/week/month 查询汇总 |
+| GET | `/api/stats/{ip}?range=day&date=2026-04-04` | 单个 IP 的分钟级详细记录 |
+| GET | `/api/devices` | 获取设备列表 |
+| PUT | `/api/devices/{ip}` | 设置设备名称，Body: `{"name":"GPU-01","note":"301室"}` |
 
 ### WebSocket
 
@@ -305,92 +540,88 @@ PUT /api/devices/{ip}               # 设置设备名称
 WebSocket /ws/realtime
 ```
 
-每 2 秒推送一次所有 IP 的实时流量数据，数据格式与 `GET /api/realtime` 相同。
+每 2 秒推送一次所有 IP 的实时流量数据。
+
+### 示例
+
+```bash
+# 获取实时流量
+curl http://192.168.1.108:8080/api/realtime
+
+# 查询今天的流量统计
+curl "http://192.168.1.108:8080/api/stats?range=day&date=$(date +%Y-%m-%d)"
+
+# 给某个 IP 起名字
+curl -X PUT http://192.168.1.108:8080/api/devices/192.168.1.100 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "张三-办公机", "note": "301实验室"}'
+```
+
+---
 
 ## Project Structure
 
 ```
 lanflow/
-├── cmd/lanflow/main.go          # 程序入口，模块组装，信号处理
+├── cmd/lanflow/main.go          # 程序入口
 ├── internal/
-│   ├── aggregator/              # 流量聚合：内存计数器 + flush
-│   │   ├── aggregator.go
-│   │   └── aggregator_test.go
+│   ├── aggregator/              # 流量聚合：内存计数器 + 定时 flush
 │   ├── api/                     # HTTP 服务：REST + WebSocket + 前端
-│   │   ├── server.go            # 路由注册，静态文件嵌入
-│   │   ├── handlers.go          # REST API 处理器
-│   │   ├── handlers_test.go
-│   │   ├── websocket.go         # WebSocket Hub + 广播
-│   │   ├── websocket_test.go
-│   │   └── static/              # 前端资源（嵌入到二进制）
-│   │       ├── index.html
-│   │       ├── css/style.css
-│   │       └── js/
-│   │           ├── app.js       # 标签页路由 + 工具函数
-│   │           ├── realtime.js  # 实时监控页
-│   │           ├── history.js   # 历史统计页
-│   │           └── devices.js   # 设备管理页
+│   │   └── static/              # 前端资源（嵌入到二进制中）
 │   ├── capture/                 # libpcap 抓包
-│   │   └── capture.go
 │   ├── config/                  # YAML 配置加载
-│   │   ├── config.go
-│   │   └── config_test.go
 │   ├── logger/                  # 结构化日志
-│   │   ├── logger.go
-│   │   └── logger_test.go
 │   └── storage/                 # SQLite 存储
-│       ├── storage.go
-│       └── storage_test.go
 ├── config.yaml                  # 默认配置文件
-├── lanflow.service              # systemd service 文件
+├── lanflow.service              # systemd 服务文件
 ├── go.mod
 └── go.sum
 ```
 
+---
+
 ## FAQ
 
-### Lanflow 挂了怎么办？
+### Lanflow 挂了会断网吗？
 
-如果使用 systemd 部署，服务会在 5 秒后自动重启。如果机器本身宕机，局域网设备会断网。恢复方法：
+**不会。** IP 转发和 NAT 是 Linux 内核功能，和 lanflow 进程无关。lanflow 只负责"统计"，不负责"转发"。lanflow 挂了只是暂时看不到流量数据，3 秒内会自动重启。
 
-1. 重启 Lanflow 服务器
-2. 或在路由器中把 DHCP 网关改回 `0.0.0.0`
+### 整台服务器宕机了怎么办？
 
-### 如何让设备立即切换网关？
-
-修改路由器 DHCP 网关后，设备需要等 DHCP 续租才会生效。加速方式：
-- **Windows**: 运行 `ipconfig /release && ipconfig /renew`
-- **Linux**: 运行 `sudo dhclient -r && sudo dhclient`
-- **macOS**: 系统偏好设置 → 网络 → 断开再连接
+这时候会断网。两个恢复方法：
+1. **快速恢复：** 重启服务器，lanflow 自动启动，网络自动恢复
+2. **临时绕过：** 用手机连路由器 WiFi，进路由器管理界面把网关改回 `0.0.0.0`
 
 ### 代理/VPN 流量能统计到吗？
 
 能。无论用户是否使用 Clash、V2Ray 等代理，流量都会经过网关，**总流量统计是准确的**。但无法区分哪些是直连流量、哪些是代理流量。
 
+### 如何让设备立即切换网关？
+
+| 系统 | 操作 |
+|------|------|
+| **Windows** | CMD 运行 `ipconfig /release && ipconfig /renew` |
+| **Linux** | 运行 `sudo dhclient -r && sudo dhclient` |
+| **macOS** | 系统设置 → 网络 → 断开再连接 |
+
 ### 数据库文件在哪？
 
-默认在 `./data/lanflow.db`（相对于工作目录），使用 systemd 部署时在 `/opt/lanflow/data/lanflow.db`。可以用任何 SQLite 工具查看：
+使用 systemd 部署时在 `/opt/lanflow/data/lanflow.db`。可以直接用 SQLite 工具查看：
 
 ```bash
-sqlite3 /opt/lanflow/data/lanflow.db "SELECT ip, SUM(tx_bytes+rx_bytes) as total FROM traffic_stats GROUP BY ip ORDER BY total DESC;"
+sqlite3 /opt/lanflow/data/lanflow.db \
+  "SELECT ip, SUM(tx_bytes+rx_bytes) as total FROM traffic_stats GROUP BY ip ORDER BY total DESC;"
 ```
+
+### 如何修改 Web 端口？
+
+编辑 `/opt/lanflow/config.yaml`，把 `listen: ":8080"` 改成你想要的端口（如 `:80`），然后 `sudo systemctl restart lanflow`。
 
 ### 支持 IPv6 吗？
 
-当前版本仅监控 IPv4 流量。IPv6 支持计划在未来版本中添加。
+当前版本仅监控 IPv4 流量。
 
-### 如何持久化 IP 转发和 iptables 规则？
-
-```bash
-# 持久化 IP 转发
-echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-lanflow.conf
-sudo sysctl -p /etc/sysctl.d/99-lanflow.conf
-
-# 持久化 iptables（Ubuntu）
-sudo apt install iptables-persistent
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-sudo netfilter-persistent save
-```
+---
 
 ## Tech Stack
 
