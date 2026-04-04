@@ -60,18 +60,21 @@ func main() {
 	}
 	defer db.Close()
 
-	// Exclude gateway and local IPs from traffic stats
+	// Gateway IP is completely excluded from stats
 	excludeIPs := []string{cfg.GatewayIP}
+	// Server's own IPs: tracked but need NAT correction
+	var selfIPs []string
 	if iface, err := net.InterfaceByName(cfg.Interface); err == nil {
 		if addrs, err := iface.Addrs(); err == nil {
 			for _, addr := range addrs {
 				if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
-					excludeIPs = append(excludeIPs, ipnet.IP.String())
+					selfIPs = append(selfIPs, ipnet.IP.String())
 				}
 			}
 		}
 	}
-	log.Info("excluding IPs from stats", "ips", excludeIPs)
+	log.Info("excluding IPs", "gateway", excludeIPs, "self", selfIPs)
+	// Only exclude gateway from aggregator; self IPs are tracked (corrected in API)
 	agg := aggregator.New(lanNet, excludeIPs...)
 
 	cap, err := capture.New(cfg.Interface, agg, log)
@@ -82,7 +85,7 @@ func main() {
 
 	go cap.Run()
 
-	srv := api.NewServer(db, agg, log, excludeIPs)
+	srv := api.NewServer(db, agg, log, excludeIPs, selfIPs)
 
 	go flushLoop(agg, db, log, cfg.RetentionDays)
 	go broadcastLoop(srv)

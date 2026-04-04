@@ -18,13 +18,18 @@ type Server struct {
 	agg        *aggregator.Aggregator
 	logger     *slog.Logger
 	hub        *Hub
-	excludeIPs map[string]bool
+	excludeIPs map[string]bool // IPs to completely hide (e.g. gateway)
+	selfIPs    map[string]bool // Server's own IPs (need traffic correction due to NAT)
 }
 
-func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, excludeIPs []string) *Server {
+func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, excludeIPs []string, selfIPs []string) *Server {
 	exclude := make(map[string]bool, len(excludeIPs))
 	for _, ip := range excludeIPs {
 		exclude[ip] = true
+	}
+	self := make(map[string]bool, len(selfIPs))
+	for _, ip := range selfIPs {
+		self[ip] = true
 	}
 	s := &Server{
 		db:         db,
@@ -32,6 +37,7 @@ func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, 
 		logger:     logger,
 		hub:        newHub(),
 		excludeIPs: exclude,
+		selfIPs:    self,
 	}
 	go s.hub.run()
 	return s

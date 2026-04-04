@@ -73,6 +73,30 @@ func (s *Server) buildRealtimeEntries() []realtimeEntry {
 		}
 	}
 
+	// NAT correction: server's own IP sees all traffic twice (original + NATted).
+	// Real server traffic = server's captured traffic - sum of all other devices' traffic.
+	if len(s.selfIPs) > 0 {
+		var othersTx, othersRx int64
+		for ip, e := range totals {
+			if !s.selfIPs[ip] {
+				othersTx += e.TxBytes
+				othersRx += e.RxBytes
+			}
+		}
+		for ip := range s.selfIPs {
+			if e, ok := totals[ip]; ok {
+				e.TxBytes -= othersTx
+				e.RxBytes -= othersRx
+				if e.TxBytes < 0 {
+					e.TxBytes = 0
+				}
+				if e.RxBytes < 0 {
+					e.RxBytes = 0
+				}
+			}
+		}
+	}
+
 	// Resolve device names
 	deviceMap, _ := s.db.GetDeviceMap()
 	entries := make([]realtimeEntry, 0, len(totals))
@@ -113,20 +137,47 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		RxPackets int64  `json:"rx_packets"`
 	}
 
-	entries := make([]statsEntry, 0, len(results))
+	// Build entries, filtering excluded IPs
+	entryMap := make(map[string]*statsEntry)
+	var othersTx, othersRx int64
 	for _, r := range results {
-		name := r.IP
-		if dev, ok := deviceMap[r.IP]; ok {
-			name = dev.Name
+		if s.excludeIPs[r.IP] {
+			continue
 		}
-		entries = append(entries, statsEntry{
+		entryMap[r.IP] = &statsEntry{
 			IP:        r.IP,
-			Name:      name,
 			TxBytes:   r.TxBytes,
 			RxBytes:   r.RxBytes,
 			TxPackets: r.TxPackets,
 			RxPackets: r.RxPackets,
-		})
+		}
+		if !s.selfIPs[r.IP] {
+			othersTx += r.TxBytes
+			othersRx += r.RxBytes
+		}
+	}
+
+	// NAT correction for self IPs
+	for ip := range s.selfIPs {
+		if e, ok := entryMap[ip]; ok {
+			e.TxBytes -= othersTx
+			e.RxBytes -= othersRx
+			if e.TxBytes < 0 {
+				e.TxBytes = 0
+			}
+			if e.RxBytes < 0 {
+				e.RxBytes = 0
+			}
+		}
+	}
+
+	entries := make([]statsEntry, 0, len(entryMap))
+	for _, e := range entryMap {
+		e.Name = e.IP
+		if dev, ok := deviceMap[e.IP]; ok {
+			e.Name = dev.Name
+		}
+		entries = append(entries, *e)
 	}
 
 	jsonResponse(w, entries)
