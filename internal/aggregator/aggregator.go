@@ -27,6 +27,11 @@ type FlowKey struct {
 	RemotePort uint16
 }
 
+// DomainClassifier classifies domains into friendly service names.
+type DomainClassifier interface {
+	Classify(domain string) string
+}
+
 type Aggregator struct {
 	mu         sync.Mutex
 	lanNet     *net.IPNet
@@ -35,6 +40,7 @@ type Aggregator struct {
 	// Domain tracking
 	domainCounters map[string]map[string]*DomainCounter // ip -> domain -> counter
 	flowToDomain   map[FlowKey]string                   // connection -> domain mapping
+	classifier     DomainClassifier
 }
 
 func New(lanNet *net.IPNet, excludeIPs ...string) *Aggregator {
@@ -51,7 +57,20 @@ func New(lanNet *net.IPNet, excludeIPs ...string) *Aggregator {
 	}
 }
 
+// SetClassifier sets the domain classifier for mapping domains to service names.
+func (a *Aggregator) SetClassifier(c DomainClassifier) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.classifier = c
+}
+
 func (a *Aggregator) RecordSNI(localIP, remoteIP string, remotePort uint16, domain string) {
+	// Classify domain to friendly name
+	if a.classifier != nil {
+		if name := a.classifier.Classify(domain); name != "" {
+			domain = name
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := FlowKey{LocalIP: localIP, RemoteIP: remoteIP, RemotePort: remotePort}

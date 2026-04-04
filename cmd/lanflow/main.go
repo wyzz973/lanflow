@@ -15,6 +15,7 @@ import (
 	"lanflow/internal/aggregator"
 	"lanflow/internal/api"
 	"lanflow/internal/capture"
+	"lanflow/internal/classifier"
 	"lanflow/internal/config"
 	"lanflow/internal/logger"
 	"lanflow/internal/storage"
@@ -76,6 +77,13 @@ func main() {
 	log.Info("excluding IPs", "gateway", excludeIPs, "self", selfIPs)
 	// Only exclude gateway from aggregator; self IPs are tracked (corrected in API)
 	agg := aggregator.New(lanNet, excludeIPs...)
+
+	// Load domain classification rules
+	cls := classifier.New(log)
+	go func() {
+		cls.Load()
+		agg.SetClassifier(cls)
+	}()
 
 	cap, err := capture.New(cfg.Interface, agg, log)
 	if err != nil {
