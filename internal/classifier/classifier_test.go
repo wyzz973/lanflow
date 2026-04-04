@@ -4,27 +4,19 @@ import (
 	"testing"
 )
 
-func TestClassify(t *testing.T) {
+func TestEmbeddedRulesLoaded(t *testing.T) {
 	c := New(nil)
-
-	// Manually add some rules for testing
-	c.suffixes["bilibili.com"] = "B站"
-	c.suffixes["github.com"] = "GitHub"
-	c.exacts["api.google.com"] = "Google"
-	c.suffixes["google.com"] = "Google"
 
 	tests := []struct {
 		domain string
 		want   string
 	}{
 		{"www.bilibili.com", "B站"},
-		{"bilibili.com", "B站"},
-		{"video.bilibili.com", "B站"},
 		{"github.com", "GitHub"},
 		{"api.github.com", "GitHub"},
-		{"api.google.com", "Google"},   // exact match
-		{"maps.google.com", "Google"},  // suffix match
-		{"unknown-site.xyz", ""},       // no match
+		{"www.baidu.com", "百度"},
+		{"www.google.com", "Google"},
+		{"unknown-random-site.xyz", ""},
 	}
 
 	for _, tt := range tests {
@@ -37,9 +29,16 @@ func TestClassify(t *testing.T) {
 
 func TestClassifyCaseInsensitive(t *testing.T) {
 	c := New(nil)
-	c.suffixes["github.com"] = "GitHub"
-
 	if got := c.Classify("GitHub.COM"); got != "GitHub" {
 		t.Errorf("Classify(GitHub.COM) = %q, want GitHub", got)
 	}
+}
+
+func TestRuleCount(t *testing.T) {
+	c := New(nil)
+	total := len(c.suffixes) + len(c.exacts)
+	if total < 1000 {
+		t.Errorf("expected at least 1000 rules, got %d", total)
+	}
+	t.Logf("loaded %d rules (%d suffix, %d exact)", total, len(c.suffixes), len(c.exacts))
 }
