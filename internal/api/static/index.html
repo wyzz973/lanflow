@@ -9,13 +9,35 @@
 </head>
 <body>
     <header>
-        <h1>Lanflow</h1>
-        <p class="subtitle">局域网流量监控</p>
+        <div class="header-inner">
+            <div class="brand">
+                <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+                <div>
+                    <h1>Lanflow</h1>
+                    <p class="subtitle">局域网流量监控</p>
+                </div>
+            </div>
+        </div>
     </header>
     <nav>
-        <button class="tab active" data-tab="realtime">实时监控</button>
-        <button class="tab" data-tab="history">历史统计</button>
-        <button class="tab" data-tab="devices">设备管理</button>
+        <div class="nav-inner">
+            <button class="tab active" data-tab="realtime">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                实时监控
+            </button>
+            <button class="tab" data-tab="history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                历史统计
+            </button>
+            <button class="tab" data-tab="devices">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                设备管理
+            </button>
+        </div>
     </nav>
     <main>
         <div id="realtime" class="tab-content active"></div>
