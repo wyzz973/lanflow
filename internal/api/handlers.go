@@ -243,6 +243,7 @@ type domainEntry struct {
 	IP      string `json:"ip"`
 	Name    string `json:"name"`
 	Domain  string `json:"domain"`
+	Service string `json:"service"`
 	TxBytes int64  `json:"tx_bytes"`
 	RxBytes int64  `json:"rx_bytes"`
 	Total   int64  `json:"total"`
@@ -272,10 +273,15 @@ func (s *Server) handleDomainStats(w http.ResponseWriter, r *http.Request) {
 		if dev, ok := deviceMap[r.IP]; ok {
 			name = dev.Name
 		}
+		service := ""
+		if s.classifier != nil {
+			service = s.classifier.Classify(r.Domain)
+		}
 		entries = append(entries, domainEntry{
 			IP:      r.IP,
 			Name:    name,
 			Domain:  r.Domain,
+			Service: service,
 			TxBytes: r.TxBytes,
 			RxBytes: r.RxBytes,
 			Total:   r.TxBytes + r.RxBytes,

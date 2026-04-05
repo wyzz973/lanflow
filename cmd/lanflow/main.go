@@ -78,10 +78,6 @@ func main() {
 	// Only exclude gateway from aggregator; self IPs are tracked (corrected in API)
 	agg := aggregator.New(lanNet, excludeIPs...)
 
-	// Load domain classification rules (embedded, no network needed)
-	cls := classifier.New(log)
-	agg.SetClassifier(cls)
-
 	cap, err := capture.New(cfg.Interface, agg, log)
 	if err != nil {
 		log.Error("capture error", "error", err)
@@ -90,7 +86,9 @@ func main() {
 
 	go cap.Run()
 
-	srv := api.NewServer(db, agg, log, excludeIPs, selfIPs)
+	// Load domain classification rules (embedded, no network needed)
+	cls := classifier.New(log)
+	srv := api.NewServer(db, agg, log, excludeIPs, selfIPs, cls)
 
 	go flushLoop(agg, db, log, cfg.RetentionDays)
 	go broadcastLoop(srv)

@@ -203,7 +203,7 @@
             var total = d.tx_bytes + d.rx_bytes;
             var pct = grandTotal > 0 ? (total / grandTotal * 100) : 0;
             html += '<tr>' +
-                '<td class="mono">' + Utils.escapeHtml(d.domain || d.name || '-') + '</td>' +
+                '<td>' + (d.service ? '<strong>' + Utils.escapeHtml(d.service) + '</strong><br><span class="mono" style="font-size:12px;color:#9ca3af;">' + Utils.escapeHtml(d.domain) + '</span>' : '<span class="mono">' + Utils.escapeHtml(d.domain || d.name || '-') + '</span>') + '</td>' +
                 '<td>' + Utils.formatBytes(d.tx_bytes) + '</td>' +
                 '<td>' + Utils.formatBytes(d.rx_bytes) + '</td>' +
                 '<td><strong>' + Utils.formatBytes(total) + '</strong></td>' +

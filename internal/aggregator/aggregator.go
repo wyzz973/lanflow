@@ -27,11 +27,6 @@ type FlowKey struct {
 	RemotePort uint16
 }
 
-// DomainClassifier classifies domains into friendly service names.
-type DomainClassifier interface {
-	Classify(domain string) string
-}
-
 type Aggregator struct {
 	mu         sync.Mutex
 	lanNet     *net.IPNet
@@ -40,7 +35,7 @@ type Aggregator struct {
 	// Domain tracking
 	domainCounters map[string]map[string]*DomainCounter // ip -> domain -> counter
 	flowToDomain   map[FlowKey]string                   // connection -> domain mapping
-	classifier     DomainClassifier
+	ipToDomain     map[string]string                    // remote IP -> domain (from DNS)
 }
 
 func New(lanNet *net.IPNet, excludeIPs ...string) *Aggregator {
@@ -54,27 +49,23 @@ func New(lanNet *net.IPNet, excludeIPs ...string) *Aggregator {
 		counters:       make(map[string]*Counter),
 		domainCounters: make(map[string]map[string]*DomainCounter),
 		flowToDomain:   make(map[FlowKey]string),
+		ipToDomain:     make(map[string]string),
 	}
-}
-
-// SetClassifier sets the domain classifier for mapping domains to service names.
-func (a *Aggregator) SetClassifier(c DomainClassifier) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.classifier = c
 }
 
 func (a *Aggregator) RecordSNI(localIP, remoteIP string, remotePort uint16, domain string) {
-	// Classify domain to friendly name
-	if a.classifier != nil {
-		if name := a.classifier.Classify(domain); name != "" {
-			domain = name
-		}
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := FlowKey{LocalIP: localIP, RemoteIP: remoteIP, RemotePort: remotePort}
 	a.flowToDomain[key] = domain
+}
+
+func (a *Aggregator) RecordDNS(domain string, ips []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, ip := range ips {
+		a.ipToDomain[ip] = domain
+	}
 }
 
 func (a *Aggregator) RecordPacket(srcIP, dstIP string, srcPort, dstPort uint16, size int) {
@@ -105,6 +96,8 @@ func (a *Aggregator) RecordPacket(srcIP, dstIP string, srcPort, dstPort uint16, 
 		key := FlowKey{LocalIP: srcIP, RemoteIP: dstIP, RemotePort: dstPort}
 		if domain, ok := a.flowToDomain[key]; ok {
 			a.getOrCreateDomain(srcIP, domain).TxBytes += int64(size)
+		} else if domain, ok := a.ipToDomain[dstIP]; ok {
+			a.getOrCreateDomain(srcIP, domain).TxBytes += int64(size)
 		}
 	} else {
 		if a.excludeIPs[dstIP] {
@@ -116,6 +109,8 @@ func (a *Aggregator) RecordPacket(srcIP, dstIP string, srcPort, dstPort uint16, 
 		// Track domain
 		key := FlowKey{LocalIP: dstIP, RemoteIP: srcIP, RemotePort: srcPort}
 		if domain, ok := a.flowToDomain[key]; ok {
+			a.getOrCreateDomain(dstIP, domain).RxBytes += int64(size)
+		} else if domain, ok := a.ipToDomain[srcIP]; ok {
 			a.getOrCreateDomain(dstIP, domain).RxBytes += int64(size)
 		}
 	}
@@ -200,6 +195,9 @@ func (a *Aggregator) FlushDomains() []storage.DomainRecord {
 	// Clean up old flow mappings to avoid memory leak
 	if len(a.flowToDomain) > 10000 {
 		a.flowToDomain = make(map[FlowKey]string)
+	}
+	if len(a.ipToDomain) > 50000 {
+		a.ipToDomain = make(map[string]string)
 	}
 
 	return records

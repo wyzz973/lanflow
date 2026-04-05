@@ -166,3 +166,29 @@ func TestDomainTracking(t *testing.T) {
 		t.Errorf("bilibili.com TxBytes = %d, want 500", bb.TxBytes)
 	}
 }
+
+func TestDNSMapping(t *testing.T) {
+	_, lanNet, _ := net.ParseCIDR("192.168.1.0/24")
+	agg := New(lanNet)
+
+	// Record DNS: music.163.com resolves to 1.2.3.4
+	agg.RecordDNS("music.163.com", []string{"1.2.3.4"})
+
+	// Traffic to 1.2.3.4 without SNI should be attributed to music.163.com
+	agg.RecordPacket("192.168.1.10", "1.2.3.4", 50000, 443, 5000)
+	agg.RecordPacket("1.2.3.4", "192.168.1.10", 443, 50000, 10000)
+
+	records := agg.FlushDomains()
+	if len(records) != 1 {
+		t.Fatalf("expected 1 domain record, got %d", len(records))
+	}
+	if records[0].Domain != "music.163.com" {
+		t.Errorf("domain = %q, want music.163.com", records[0].Domain)
+	}
+	if records[0].TxBytes != 5000 {
+		t.Errorf("TxBytes = %d, want 5000", records[0].TxBytes)
+	}
+	if records[0].RxBytes != 10000 {
+		t.Errorf("RxBytes = %d, want 10000", records[0].RxBytes)
+	}
+}

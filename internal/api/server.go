@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"lanflow/internal/aggregator"
+	"lanflow/internal/classifier"
 	"lanflow/internal/storage"
 )
 
@@ -20,9 +21,10 @@ type Server struct {
 	hub        *Hub
 	excludeIPs map[string]bool // IPs to completely hide (e.g. gateway)
 	selfIPs    map[string]bool // Server's own IPs (need traffic correction due to NAT)
+	classifier *classifier.Classifier
 }
 
-func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, excludeIPs []string, selfIPs []string) *Server {
+func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, excludeIPs []string, selfIPs []string, cls *classifier.Classifier) *Server {
 	exclude := make(map[string]bool, len(excludeIPs))
 	for _, ip := range excludeIPs {
 		exclude[ip] = true
@@ -38,6 +40,7 @@ func NewServer(db *storage.DB, agg *aggregator.Aggregator, logger *slog.Logger, 
 		hub:        newHub(),
 		excludeIPs: exclude,
 		selfIPs:    self,
+		classifier: cls,
 	}
 	go s.hub.run()
 	return s

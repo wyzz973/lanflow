@@ -71,6 +71,25 @@ func (c *Capture) Run() {
 			udp := udpLayer.(*layers.UDP)
 			srcPort = uint16(udp.SrcPort)
 			dstPort = uint16(udp.DstPort)
+
+			// Parse DNS responses for IP-to-domain mapping
+			if srcPort == 53 {
+				if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
+					dns := dnsLayer.(*layers.DNS)
+					if dns.QR && len(dns.Questions) > 0 {
+						qname := string(dns.Questions[0].Name)
+						var ips []string
+						for _, ans := range dns.Answers {
+							if ans.Type == layers.DNSTypeA {
+								ips = append(ips, ans.IP.String())
+							}
+						}
+						if len(ips) > 0 && qname != "" {
+							c.agg.RecordDNS(qname, ips)
+						}
+					}
+				}
+			}
 		}
 
 		c.agg.RecordPacket(ip.SrcIP.String(), ip.DstIP.String(), srcPort, dstPort, len(packet.Data()))
