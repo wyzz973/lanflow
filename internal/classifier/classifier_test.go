@@ -42,3 +42,37 @@ func TestRuleCount(t *testing.T) {
 	}
 	t.Logf("loaded %d rules (%d suffix, %d exact)", total, len(c.suffixes), len(c.exacts))
 }
+
+func TestNdpiRulesLoaded(t *testing.T) {
+	c := New(nil)
+	total := len(c.ndpiSuffixes) + len(c.ndpiExacts)
+	if total < 100 {
+		t.Errorf("expected at least 100 nDPI rules, got %d", total)
+	}
+	t.Logf("loaded %d nDPI rules", total)
+}
+
+func TestNdpiPriority(t *testing.T) {
+	c := New(nil)
+
+	// nDPI should give more specific names than v2fly
+	tests := []struct {
+		domain string
+		want   string // expected to contain this substring
+	}{
+		{"drive.google.com", "Google Drive"},
+		{"youtube.com", "YouTube"},
+		{"primevideo.com", "Amazon Video"},
+		{"discord.com", "Discord"},
+		{"spotify.com", "Spotify"},
+	}
+
+	for _, tt := range tests {
+		got := c.Classify(tt.domain)
+		if got == "" {
+			t.Errorf("Classify(%q) = empty, want containing %q", tt.domain, tt.want)
+		} else {
+			t.Logf("Classify(%q) = %q", tt.domain, got)
+		}
+	}
+}
